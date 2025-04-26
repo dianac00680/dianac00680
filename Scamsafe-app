@@ -1,0 +1,63 @@
+import requests
+import json
+import re
+from urllib.parse import urlparse
+
+# Set up Groq OpenAI API Key
+API_KEY = "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"  # Replace with your key
+
+def scam_score(message: str):
+    score = 0
+    reasons = []
+
+    # 1. Check for urgency keywords
+    urgency_keywords = ["avoid a fine", "urgent", "immediately", "now", "before", "deadline"]
+    if any(word in message.lower() for word in urgency_keywords):
+        score += 20
+        reasons.append("Urgency or deadline present")
+
+    # 2. Threats or negative consequences
+    threats = ["keep your license", "account suspended", "penalty", "fine", "legal action"]
+    if any(word in message.lower() for word in threats):
+        score += 20
+        reasons.append("Threat of negative consequences")
+
+    # 3. Suspicious links
+    url_regex = r"https?://[^\s]+"
+    urls = re.findall(url_regex, message)
+    for url in urls:
+        parsed_url = urlparse(url)
+        if any(tld in parsed_url.netloc for tld in [".top", ".xyz", ".cn", ".ru"]) or "-" in parsed_url.netloc:
+            score += 30
+            reasons.append(f"Suspicious or unfamiliar URL: {url}")
+        else:
+            score += 10
+            reasons.append(f"Contains a URL: {url}")
+
+    # 4. Groq AI Scam Detection
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    data = {"model": "gpt-4", "messages": [{"role": "user", "content": f"Classify this message:\n{message}"}]}
+
+    response = requests.post("https://console.groq.com/home/v1/chat/completions", headers=headers, json=data)
+    
+    if response.status_code == 200:
+        gpt_result = response.json()["choices"][0]["message"]["content"].strip().lower()
+        if "scam" in gpt_result:
+            score += 40
+            reasons.append("Groq AI classified this message as a potential scam.")
+    else:
+        reasons.append("Failed to get Groq AI response.")
+
+    # Final Risk Calculation
+    probability = min(100, max(0, score))
+    risk = "High" if probability >= 60 else "Medium" if probability >= 30 else "Low"
+    
+    return {"score": probability, "risk": risk, "reasons": reasons}
+
+# Example usage:
+msg = "URGENT: Pay your toll now before your license gets suspended. Click here https://xyz-payments.ru"
+result = scam_score(msg)
+print(f"Scam Probability Score: {result['score']}% ({result['risk']} Risk)")
+print("Reasons:")
+for reason in result['reasons']:
+    print(f"- {reason}")
